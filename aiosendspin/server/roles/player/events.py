@@ -16,7 +16,7 @@ class VolumeChangedEvent(ClientRoleEvent):
 
 
 @dataclass
-class StaticDelayChangedEvent(ClientRoleEvent):
+class OutputDelayChangedEvent(ClientRoleEvent):
     """The output delay of the player was changed."""
 
     output_delay_ms: int

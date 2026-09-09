@@ -45,8 +45,8 @@ from aiosendspin.server.roles.player.audio_transformers import (
 from aiosendspin.server.roles.player.capabilities import can_encode_format, filter_encodable_formats
 from aiosendspin.server.roles.player.events import (
     MinBufferChangedEvent,
+    OutputDelayChangedEvent,
     RequiredLeadTimeChangedEvent,
-    StaticDelayChangedEvent,
     VolumeChangedEvent,
 )
 from aiosendspin.util import create_task
@@ -487,15 +487,24 @@ class PlayerV1Role(Role):
         return self.output_delay_ms
 
     def set_output_delay(self, delay_ms: int) -> None:
-        """Send set_output_delay command to client."""
-        if PlayerCommand.SET_OUTPUT_DELAY not in self.state_supported_commands:
+        """Send set_output_delay command to client.
+
+        Addresses the client using whichever spelling it declared support for
+        — a client that only declared the pre-rename 'set_static_delay' still
+        receives a delay command it can act on.
+        """
+        if PlayerCommand.SET_OUTPUT_DELAY in self.state_supported_commands:
+            command = PlayerCommand.SET_OUTPUT_DELAY
+        elif PlayerCommand.SET_STATIC_DELAY in self.state_supported_commands:
+            command = PlayerCommand.SET_STATIC_DELAY
+        else:
             return
 
         self._client.send_message(
             ServerCommandMessage(
                 payload=ServerCommandPayload(
                     player=PlayerCommandPayload(
-                        command=PlayerCommand.SET_OUTPUT_DELAY,
+                        command=command,
                         output_delay_ms=delay_ms,
                     )
                 )
@@ -667,6 +676,10 @@ class PlayerV1Role(Role):
             reasons.append("sent volume without declaring the volume command")
         if state.muted is not None and PlayerCommand.MUTE not in commands:
             reasons.append("sent muted without declaring the mute command")
+        if state.legacy_delay_key:
+            reasons.append(f"used the pre-rename '{state.legacy_delay_key}' key")
+        if state.supported_commands and PlayerCommand.SET_STATIC_DELAY in state.supported_commands:
+            reasons.append("declared the pre-rename 'set_static_delay' command")
         return reasons
 
     def on_client_state(self, payload: ClientStatePayload) -> None:
@@ -706,7 +719,7 @@ class PlayerV1Role(Role):
 
         if state.output_delay_ms is not None and self.output_delay_ms != state.output_delay_ms:
             self.output_delay_ms = state.output_delay_ms
-            self.emit_client_event(StaticDelayChangedEvent(output_delay_ms=state.output_delay_ms))
+            self.emit_client_event(OutputDelayChangedEvent(output_delay_ms=state.output_delay_ms))
 
         if (
             state.required_lead_time_ms is not None

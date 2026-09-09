@@ -29,8 +29,8 @@ from aiosendspin.server.roles.base import AudioChunk, AudioRequirements, StreamR
 from aiosendspin.server.roles.player.audio_transformers import FlacEncoder, PcmPassthrough
 from aiosendspin.server.roles.player.events import (
     MinBufferChangedEvent,
+    OutputDelayChangedEvent,
     RequiredLeadTimeChangedEvent,
-    StaticDelayChangedEvent,
     VolumeChangedEvent,
 )
 
@@ -1078,7 +1078,7 @@ def test_partial_client_state_does_not_reset_timing_fields() -> None:
         type(call.args[0])
         for call in client._signal_event.call_args_list  # noqa: SLF001
     ]
-    assert StaticDelayChangedEvent not in emitted_types
+    assert OutputDelayChangedEvent not in emitted_types
     assert RequiredLeadTimeChangedEvent not in emitted_types
     assert MinBufferChangedEvent not in emitted_types
     assert VolumeChangedEvent in emitted_types
@@ -1098,7 +1098,7 @@ def test_explicit_zero_output_delay_in_delta_updates_field() -> None:
 
     assert role.output_delay_ms == 0
     event = client._signal_event.call_args[0][0]  # noqa: SLF001
-    assert isinstance(event, StaticDelayChangedEvent)
+    assert isinstance(event, OutputDelayChangedEvent)
     assert event.output_delay_ms == 0
 
 
@@ -1128,3 +1128,52 @@ def test_set_output_delay_noop_without_support() -> None:
     role = PlayerV1Role(client=client)
     role.set_output_delay(500)
     client.send_message.assert_not_called()
+
+
+def test_set_output_delay_addresses_client_using_pre_rename_command() -> None:
+    """A client that only declared set_static_delay still gets a delay command it understands."""
+    client = _make_client_stub()
+    role = PlayerV1Role(client=client)
+    role.state_supported_commands = [PlayerCommand.SET_STATIC_DELAY]
+
+    role.set_output_delay(500)
+
+    client.send_message.assert_called_once()
+    sent = client.send_message.call_args.args[0]
+    assert sent.payload.player.command == PlayerCommand.SET_STATIC_DELAY
+    assert sent.payload.player.output_delay_ms == 500
+    assert sent.payload.player.to_dict() == {"command": "set_static_delay", "static_delay_ms": 500}
+
+
+def test_set_output_delay_prefers_current_command_when_both_declared() -> None:
+    """A client declaring both spellings is addressed with the current one."""
+    client = _make_client_stub()
+    role = PlayerV1Role(client=client)
+    role.state_supported_commands = [PlayerCommand.SET_STATIC_DELAY, PlayerCommand.SET_OUTPUT_DELAY]
+
+    role.set_output_delay(500)
+
+    sent = client.send_message.call_args.args[0]
+    assert sent.payload.player.command == PlayerCommand.SET_OUTPUT_DELAY
+
+
+def test_player_client_state_deviations_flags_pre_rename_delay_key() -> None:
+    """A client/state using static_delay_ms is a deviation."""
+    role = PlayerV1Role(client=_make_client_stub())
+    payload = ClientStatePayload(
+        available=True,
+        player=PlayerStatePayload.from_dict({"static_delay_ms": 250}),
+    )
+    reasons = role.client_state_deviations(payload)
+    assert any("static_delay_ms" in r for r in reasons)
+
+
+def test_player_client_state_deviations_flags_pre_rename_command_name() -> None:
+    """Declaring set_static_delay in supported_commands is a deviation."""
+    role = PlayerV1Role(client=_make_client_stub())
+    payload = ClientStatePayload(
+        available=True,
+        player=PlayerStatePayload(supported_commands=[PlayerCommand.SET_STATIC_DELAY]),
+    )
+    reasons = role.client_state_deviations(payload)
+    assert any("set_static_delay" in r for r in reasons)

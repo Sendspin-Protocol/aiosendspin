@@ -10,9 +10,27 @@ audio formats based on their capabilities and current conditions.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from .base import SendspinConfig, SendspinModel
 from .types import AudioCodec, PlayerCommand
+
+# Pre-rename delay key, superseded by `output_delay_ms`.
+_LEGACY_DELAY_KEY = "static_delay_ms"
+
+
+def _rewrite_legacy_delay_key(d: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite the pre-rename `static_delay_ms` key onto `output_delay_ms`."""
+    if _LEGACY_DELAY_KEY not in d:
+        return d
+    normalized = dict(d)
+    value = normalized.pop(_LEGACY_DELAY_KEY)
+    # Rewrite only when the client didn't also send the current key.
+    if "output_delay_ms" not in normalized:
+        normalized["output_delay_ms"] = value
+    # Always overwrite so a client cannot spoof the record via the wire.
+    normalized["legacy_delay_key"] = _LEGACY_DELAY_KEY
+    return normalized
 
 
 # Client -> Server client/hello player support object
@@ -104,6 +122,14 @@ class PlayerStatePayload(SendspinModel):
     """
     supported_commands: list[PlayerCommand] | None = None
     """Subset of: 'set_output_delay'. Commands this player supports via client/state."""
+    legacy_delay_key: str | None = None
+    """Pre-rename delay key the parser rewrote, recorded for the role to flag.
+    Not part of the wire schema (omitted when None)."""
+
+    @classmethod
+    def __pre_deserialize__(cls, d: dict[str, Any]) -> dict[str, Any]:
+        """Accept the pre-rename `static_delay_ms` spelling."""
+        return _rewrite_legacy_delay_key(d)
 
     def __post_init__(self) -> None:
         """Validate field values."""
@@ -117,7 +143,10 @@ class PlayerStatePayload(SendspinModel):
             )
         if self.min_buffer_ms is not None and not 0 <= self.min_buffer_ms <= 30000:
             raise ValueError(f"min_buffer_ms must be in range 0-30000, got {self.min_buffer_ms}")
-        VALID_STATE_COMMANDS = {PlayerCommand.SET_OUTPUT_DELAY}  # noqa: N806
+        VALID_STATE_COMMANDS = {  # noqa: N806
+            PlayerCommand.SET_OUTPUT_DELAY,
+            PlayerCommand.SET_STATIC_DELAY,
+        }
         if self.supported_commands:
             invalid = [c for c in self.supported_commands if c not in VALID_STATE_COMMANDS]
             if invalid:
@@ -162,10 +191,10 @@ class PlayerCommandPayload(SendspinModel):
         elif self.mute is not None:
             raise ValueError(f"Mute should not be provided for command '{self.command.value}'")
 
-        if self.command == PlayerCommand.SET_OUTPUT_DELAY:
+        if self.command in (PlayerCommand.SET_OUTPUT_DELAY, PlayerCommand.SET_STATIC_DELAY):
             if self.output_delay_ms is None:
                 raise ValueError(
-                    "output_delay_ms must be provided when command is 'set_output_delay'"
+                    f"output_delay_ms must be provided when command is '{self.command.value}'"
                 )
             if not 0 <= self.output_delay_ms <= 5000:
                 raise ValueError(
@@ -175,6 +204,18 @@ class PlayerCommandPayload(SendspinModel):
             raise ValueError(
                 f"output_delay_ms should not be provided for command '{self.command.value}'"
             )
+
+    def __post_serialize__(self, d: dict[str, Any]) -> dict[str, Any]:
+        """Serialize `output_delay_ms` under the wire key matching `command`.
+
+        Lets a caller address a client that only declared the pre-rename
+        `set_static_delay` command by constructing this payload with
+        `command=PlayerCommand.SET_STATIC_DELAY` — the Python-side field stays
+        `output_delay_ms` either way.
+        """
+        if self.command == PlayerCommand.SET_STATIC_DELAY and "output_delay_ms" in d:
+            d["static_delay_ms"] = d.pop("output_delay_ms")
+        return d
 
     class Config(SendspinConfig):
         """Config for parsing json messages."""

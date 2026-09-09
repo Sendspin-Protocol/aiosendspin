@@ -109,3 +109,42 @@ def test_player_state_rejects_invalid_supported_commands() -> None:
     """State-level supported_commands only allows set_output_delay."""
     with pytest.raises(ValueError, match="Invalid state-level"):
         PlayerStatePayload(supported_commands=[PlayerCommand.VOLUME])
+
+
+def test_player_state_accepts_pre_rename_delay_key() -> None:
+    """static_delay_ms is rewritten to output_delay_ms and recorded for the role to flag."""
+    payload = PlayerStatePayload.from_dict({"static_delay_ms": 250})
+    assert payload.output_delay_ms == 250
+    assert payload.legacy_delay_key == "static_delay_ms"
+
+
+def test_player_state_current_key_wins_over_legacy() -> None:
+    """When both keys are present, the current output_delay_ms value is kept."""
+    payload = PlayerStatePayload.from_dict({"static_delay_ms": 250, "output_delay_ms": 400})
+    assert payload.output_delay_ms == 400
+    assert payload.legacy_delay_key == "static_delay_ms"
+
+
+def test_player_state_current_delay_key_not_flagged_as_legacy() -> None:
+    """output_delay_ms alone leaves legacy_delay_key unset."""
+    payload = PlayerStatePayload.from_dict({"output_delay_ms": 250})
+    assert payload.legacy_delay_key is None
+
+
+def test_player_state_accepts_pre_rename_command_name() -> None:
+    """set_static_delay is still a valid state-level supported_commands entry."""
+    payload = PlayerStatePayload(supported_commands=[PlayerCommand.SET_STATIC_DELAY])
+    assert payload.supported_commands == [PlayerCommand.SET_STATIC_DELAY]
+
+
+def test_player_command_set_static_delay_serializes_pre_rename_wire_shape() -> None:
+    """Constructing with SET_STATIC_DELAY addresses a client that only declared that name."""
+    cmd = PlayerCommandPayload(command=PlayerCommand.SET_STATIC_DELAY, output_delay_ms=300)
+    data = cmd.to_dict()
+    assert data == {"command": "set_static_delay", "static_delay_ms": 300}
+
+
+def test_player_command_set_static_delay_requires_output_delay_ms() -> None:
+    """SET_STATIC_DELAY command requires output_delay_ms same as SET_OUTPUT_DELAY."""
+    with pytest.raises(ValueError, match="output_delay_ms must be provided"):
+        PlayerCommandPayload(command=PlayerCommand.SET_STATIC_DELAY)
