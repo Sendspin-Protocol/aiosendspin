@@ -597,6 +597,7 @@ class SendspinServer:
         """
         connection = self._connection_for(client_id)
         await self.pairing_store.remove_record(client_id)
+        connection.forget_credential_mismatch()
         connection.unpair()
 
     async def trust_unpaired(self, client_id: str) -> None:

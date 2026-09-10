@@ -136,8 +136,8 @@ class NoiseSession:
         except InvalidTag as exc:
             raise NoiseInvalidMessage("Failed authentication of handshake message") from exc
         if self.handshake_complete:
-            # The library drops its handshake state here, ephemeral included. Drop what was
-            # kept for a fork with it, so no replay material outlives the handshake.
+            # The library drops its handshake state here. Drop the replay material with
+            # it, so nothing that could rebuild this exchange outlives the handshake.
             self._rebuild = None
             self._message_1 = None
         return plaintext

@@ -15,6 +15,7 @@ from aiosendspin.noise.driver import (
     HandshakeAbortedError,
     PskProvider,
     PskResolver,
+    _exchange_as_responder,
     run_handshake_client,
     run_handshake_server,
     run_rehandshake_client,
@@ -876,7 +877,12 @@ async def test_rehandshake_category_mismatch_aborts() -> None:
 
 
 async def test_rehandshake_referencing_an_unusable_psk_aborts_the_server() -> None:
-    """The initiator half of the re-handshake rule: no Sentinel rescue there either."""
+    """The initiator half of the re-handshake rule: no Sentinel rescue there either.
+
+    The client is driven with the fallback deliberately enabled, so it really does answer
+    message 2 under the Sentinel. The server must refuse that rather than accept it, which
+    is what keeps a live session from being demoted mid-connection.
+    """
     server_id = Identity.generate()
     client_id = Identity.generate()
 
@@ -905,16 +911,24 @@ async def test_rehandshake_referencing_an_unusable_psk_aborts_the_server() -> No
         counterparty_id=client_id.peer_id,
     )
 
-    client_task = asyncio.create_task(
-        run_rehandshake_client(
-            client_init.encrypted_ws,
-            local_identity=client_id,
-            server_id=server_id.peer_id,
+    async def falling_back_client() -> None:
+        """Answer the re-handshake under the Sentinel, as a conformant client never would."""
+        session = NoiseSession.as_responder(
             suite=client_init.suite,
+            local_static_priv=client_id.private_bytes,
+            remote_static_pub=server_id.public_bytes,
             prologue=client_init.handshake_hash,
-            psk_resolver=_resolver({}),
         )
-    )
+        await _exchange_as_responder(
+            client_init.encrypted_ws,
+            session=session,
+            psk_resolver=_resolver({}),
+            expected_peer_id=server_id.peer_id,
+            timeout_s=1.0,
+            allow_sentinel_fallback=True,
+        )
+
+    client_task = asyncio.create_task(falling_back_client())
     with pytest.raises(HandshakeAbortedError):
         await run_rehandshake_server(
             server_init.encrypted_ws,

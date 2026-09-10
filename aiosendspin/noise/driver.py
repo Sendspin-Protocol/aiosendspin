@@ -311,7 +311,7 @@ async def _exchange_as_initiator(
     sentinel_admitted = False
     try:
         msg2_pt = _read_handshake_message(session, hs2_text, "Noise message 2")
-    except HandshakeAuthenticationError:
+    except _HandshakeAuthenticationError:
         if not allow_sentinel_fallback or psk.category is PskCategory.SENTINEL:
             raise
         # The peer could not use the PSK we referenced. A message 2 that verifies under
@@ -412,15 +412,16 @@ def _read_handshake_message(session: NoiseSession, text: str, what: str) -> byte
     try:
         return session.read_message(ciphertext)
     except (NoiseInvalidMessage, NoiseHandshakeError, NoiseValueError) as exc:
-        raise HandshakeAuthenticationError(f"{what} failed Noise authentication") from exc
+        raise _HandshakeAuthenticationError(f"{what} failed Noise authentication") from exc
 
 
-class HandshakeAuthenticationError(HandshakeAbortedError):
+class _HandshakeAuthenticationError(HandshakeAbortedError):
     """A handshake message failed to authenticate under the PSK in use.
 
-    Separated from the malformed-frame aborts so a peer cannot make the server rebuild a
-    handshake state by sending rubbish: only this one can mean the credential is wrong,
-    so only this one is a candidate for the Sentinel fallback.
+    Separated from the malformed-frame aborts, which say nothing about the credential and
+    so must never reach the Sentinel fallback. Ciphertext that merely fails to decrypt is
+    indistinguishable from a wrong PSK and still costs one rebuild, which is bounded at
+    one per connection.
     """
 
 

@@ -117,10 +117,9 @@ async def test_forgetting_the_client_releases_the_constraint() -> None:
         psk_id=psk_id_for(psk), psk=psk, category=PskCategory.SENTINEL
     )
     conn._trusted_unpaired = True  # noqa: SLF001
-    conn.send_priority_message = MagicMock()  # type: ignore[method-assign]
     assert conn._playback_capable is False  # noqa: SLF001
 
-    conn.unpair()
+    conn.forget_credential_mismatch()
 
     assert conn._playback_capable is True  # noqa: SLF001
     assert conn._roles_to_activate == ["controller@v1"]  # noqa: SLF001
