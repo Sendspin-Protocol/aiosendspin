@@ -14,6 +14,7 @@ from aiosendspin.noise.models import (
     ServerInitMessage,
     ServerInitPayload,
 )
+from aiosendspin.noise.trust_store import PskCategory
 
 
 def test_client_init_message_round_trip() -> None:
@@ -67,11 +68,25 @@ def test_noise_handshake_message_round_trip() -> None:
     assert parsed.type == "noise/handshake"
 
 
-def test_noise_msg1_payload_carries_psk_id() -> None:
-    """The encrypted msg-1 inner payload exposes ``psk_id`` exactly."""
-    payload = NoiseMsg1Payload(psk_id="GFsV9tLaSQm9HcFWpKsgYQOr7wFTvNUtkmFwuVz3zoo")
+def test_noise_msg1_payload_carries_psk_id_and_category() -> None:
+    """The encrypted msg-1 inner payload exposes ``psk_id`` and the PSK's category code."""
+    payload = NoiseMsg1Payload(
+        psk_id="GFsV9tLaSQm9HcFWpKsgYQOr7wFTvNUtkmFwuVz3zoo",
+        psk_category=PskCategory.SENTINEL.code,
+    )
     raw = payload.to_json()
-    assert raw == '{"psk_id":"GFsV9tLaSQm9HcFWpKsgYQOr7wFTvNUtkmFwuVz3zoo"}'
+    assert raw == ('{"psk_id":"GFsV9tLaSQm9HcFWpKsgYQOr7wFTvNUtkmFwuVz3zoo","psk_category":"sn"}')
+
+
+def test_noise_msg1_payload_omits_an_absent_category() -> None:
+    """A payload without the category omits the key rather than sending null."""
+    payload = NoiseMsg1Payload(psk_id="GFsV9tLaSQm9HcFWpKsgYQOr7wFTvNUtkmFwuVz3zoo")
+    assert payload.to_json() == '{"psk_id":"GFsV9tLaSQm9HcFWpKsgYQOr7wFTvNUtkmFwuVz3zoo"}'
+
+
+def test_noise_msg1_category_codes_share_one_length() -> None:
+    """Equal-length codes keep the encrypted payload's length independent of the category."""
+    assert len({len(category.code) for category in PskCategory}) == 1
 
 
 def test_noise_msg2_payload_serializes_to_empty_object() -> None:
