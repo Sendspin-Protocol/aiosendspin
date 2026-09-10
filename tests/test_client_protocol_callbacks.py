@@ -528,6 +528,25 @@ async def test_server_command_set_output_delay_applies_and_notifies() -> None:
     assert received == [payload]
 
 
+async def test_server_command_pre_rename_delay_applies_and_notifies() -> None:
+    """A pre-rename server/command set_static_delay updates the offset and fires the callback."""
+    client = make_sdk_client(
+        client_name="Test Client", roles=[Roles.PLAYER], player_support=_player_support()
+    )
+    connection = SendspinConnection(client)
+
+    received: list[ServerCommandPayload] = []
+    client.add_server_command_listener(received.append)
+
+    payload = ServerCommandPayload.from_dict(
+        {"player": {"command": "set_static_delay", "static_delay_ms": 250}}
+    )
+    connection._handle_server_command(payload)  # noqa: SLF001
+
+    assert connection.output_delay_ms == 250.0
+    assert received == [payload]
+
+
 async def test_server_command_without_player_only_notifies() -> None:
     """A server/command with no player sub-command leaves the delay unchanged but still notifies."""
     client = make_sdk_client(

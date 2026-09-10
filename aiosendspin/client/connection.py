@@ -1364,7 +1364,8 @@ class SendspinConnection:
         if payload.player is not None:
             player_cmd = payload.player
             if (
-                player_cmd.command == PlayerCommand.SET_OUTPUT_DELAY
+                player_cmd.command
+                in (PlayerCommand.SET_OUTPUT_DELAY, PlayerCommand.SET_STATIC_DELAY)
                 and player_cmd.output_delay_ms is not None
             ):
                 self.set_output_delay_ms(float(player_cmd.output_delay_ms))

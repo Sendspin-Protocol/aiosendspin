@@ -20,16 +20,14 @@ _LEGACY_DELAY_KEY = "static_delay_ms"
 
 
 def _rewrite_legacy_delay_key(d: dict[str, Any]) -> dict[str, Any]:
-    """Rewrite the pre-rename `static_delay_ms` key onto `output_delay_ms`."""
-    if _LEGACY_DELAY_KEY not in d:
-        return d
+    """Return a copy of `d` with the pre-rename `static_delay_ms` key on `output_delay_ms`."""
     normalized = dict(d)
+    if _LEGACY_DELAY_KEY not in normalized:
+        return normalized
     value = normalized.pop(_LEGACY_DELAY_KEY)
-    # Rewrite only when the client didn't also send the current key.
+    # Rewrite only when the sender didn't also send the current key.
     if "output_delay_ms" not in normalized:
         normalized["output_delay_ms"] = value
-    # Always overwrite so a client cannot spoof the record via the wire.
-    normalized["legacy_delay_key"] = _LEGACY_DELAY_KEY
     return normalized
 
 
@@ -128,8 +126,11 @@ class PlayerStatePayload(SendspinModel):
 
     @classmethod
     def __pre_deserialize__(cls, d: dict[str, Any]) -> dict[str, Any]:
-        """Accept the pre-rename `static_delay_ms` spelling."""
-        return _rewrite_legacy_delay_key(d)
+        """Accept the pre-rename `static_delay_ms` spelling, recording that it was used."""
+        normalized = _rewrite_legacy_delay_key(d)
+        # Always overwrite so a client cannot spoof the record via the wire.
+        normalized["legacy_delay_key"] = _LEGACY_DELAY_KEY if _LEGACY_DELAY_KEY in d else None
+        return normalized
 
     def __post_init__(self) -> None:
         """Validate field values."""
@@ -174,6 +175,11 @@ class PlayerCommandPayload(SendspinModel):
     """True to mute, false to unmute, only set if command is mute."""
     output_delay_ms: int | None = None
     """Delay in milliseconds (0-5000), only set if command is set_output_delay."""
+
+    @classmethod
+    def __pre_deserialize__(cls, d: dict[str, Any]) -> dict[str, Any]:
+        """Accept the pre-rename `static_delay_ms` spelling from a pre-rename server."""
+        return _rewrite_legacy_delay_key(d)
 
     def __post_init__(self) -> None:
         """Validate field values and command consistency."""

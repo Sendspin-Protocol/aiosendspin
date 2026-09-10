@@ -148,3 +148,48 @@ def test_player_command_set_static_delay_requires_output_delay_ms() -> None:
     """SET_STATIC_DELAY command requires output_delay_ms same as SET_OUTPUT_DELAY."""
     with pytest.raises(ValueError, match="output_delay_ms must be provided"):
         PlayerCommandPayload(command=PlayerCommand.SET_STATIC_DELAY)
+
+
+def test_player_command_accepts_pre_rename_delay_key() -> None:
+    """A pre-rename server's set_static_delay command parses into output_delay_ms."""
+    cmd = PlayerCommandPayload.from_dict({"command": "set_static_delay", "static_delay_ms": 300})
+    assert cmd.command == PlayerCommand.SET_STATIC_DELAY
+    assert cmd.output_delay_ms == 300
+
+
+def test_player_command_pre_rename_round_trips() -> None:
+    """SET_STATIC_DELAY survives the pre-rename wire shape in both directions."""
+    cmd = PlayerCommandPayload(command=PlayerCommand.SET_STATIC_DELAY, output_delay_ms=300)
+    restored = PlayerCommandPayload.from_dict(cmd.to_dict())
+    assert restored == cmd
+
+
+def test_player_command_accepts_current_delay_key() -> None:
+    """The current set_output_delay spelling still parses."""
+    cmd = PlayerCommandPayload.from_dict({"command": "set_output_delay", "output_delay_ms": 300})
+    assert cmd.command == PlayerCommand.SET_OUTPUT_DELAY
+    assert cmd.output_delay_ms == 300
+
+
+def test_player_command_current_delay_key_wins_over_legacy() -> None:
+    """When both delay keys are present, the current output_delay_ms value is kept."""
+    cmd = PlayerCommandPayload.from_dict(
+        {"command": "set_static_delay", "static_delay_ms": 250, "output_delay_ms": 400}
+    )
+    assert cmd.output_delay_ms == 400
+
+
+def test_player_state_legacy_delay_key_cannot_be_spoofed() -> None:
+    """A client sending legacy_delay_key on the wire is not flagged for it."""
+    payload = PlayerStatePayload.from_dict(
+        {"output_delay_ms": 250, "legacy_delay_key": "static_delay_ms"}
+    )
+    assert payload.output_delay_ms == 250
+    assert payload.legacy_delay_key is None
+
+
+def test_player_state_from_dict_does_not_mutate_input() -> None:
+    """Parsing a pre-rename payload leaves the caller's dict untouched."""
+    raw = {"static_delay_ms": 250}
+    PlayerStatePayload.from_dict(raw)
+    assert raw == {"static_delay_ms": 250}
