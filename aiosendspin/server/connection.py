@@ -311,6 +311,7 @@ class SendspinConnection:
         self._negotiated_roles: list[str] = []
         self._client: SendspinClient | None = None
         self._trusted_unpaired = False
+        self._credential_mismatch = False
 
         self._declared_activities: list[Activity] | None = None
         self._client_event_unsub: Callable[[], None] | None = None
@@ -906,6 +907,12 @@ class SendspinConnection:
             self._handshake_hash = result.handshake_hash
             self._pairing_index = 0
             self._logger = logger.getChild(result.peer_id)
+            self._credential_mismatch = result.credential_mismatch
+            if result.credential_mismatch:
+                self._logger.warning(
+                    "Client could not use its pairing record and was admitted on the "
+                    "Sentinel PSK; it needs re-pairing before it can play again"
+                )
             return result.encrypted_ws
         if msg_type == "client/hello" and self._server.allow_unencrypted:
             if self._pairing_attempt is not None:
@@ -1174,6 +1181,10 @@ class SendspinConnection:
         """Whether this connection may ever carry playback."""
         assert self._noise_psk is not None
         assert self._client_info is not None
+        if self._credential_mismatch:
+            # The client could not use the record this server still holds. Until the two
+            # agree again the session carries pairing or nothing, whatever else admits it.
+            return False
         if self._noise_psk.category is PskCategory.LONG_TERM:
             return True
         if self._noise_psk.category is PskCategory.SENTINEL:

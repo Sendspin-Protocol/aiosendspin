@@ -236,32 +236,37 @@ async def test_server_psk_provider_returning_none_aborts() -> None:
     client_task.cancel()
 
 
-async def test_client_psk_resolver_returning_none_aborts() -> None:
-    """run_client raises HandshakeAbortedError if psk_resolver returns None for the psk_id."""
+async def test_psk_lookup_miss_completes_under_the_sentinel() -> None:
+    """A client that cannot resolve the referenced psk_id answers under the Sentinel.
+
+    Both sides end up on the Sentinel and report the mismatch, so the session survives
+    to carry a re-pairing instead of failing at the handshake.
+    """
     server_id = Identity.generate()
     client_id = Identity.generate()
     psk = generate_psk()
     resolved = ResolvedPsk(psk_id=psk_id_for(psk), psk=psk, category=PskCategory.LONG_TERM)
 
     server_ws, client_ws = make_ws_pair()
-
-    async def server_side() -> None:
-        with contextlib.suppress(HandshakeAbortedError):
-            await run_handshake_server(
-                server_ws,
-                local_identity=server_id,
-                psk_provider=_provider(resolved),
-            )
-
-    server_task = asyncio.create_task(server_side())
-    with pytest.raises(HandshakeAbortedError, match="no PSK matches psk_id"):
-        await run_handshake_client(
+    server_result, client_result = await asyncio.gather(
+        run_handshake_server(
+            server_ws,
+            local_identity=server_id,
+            psk_provider=_provider(resolved),
+        ),
+        run_handshake_client(
             client_ws,
             local_identity=client_id,
             suite=NoiseCipherSuite.CHACHAPOLY,
-            psk_resolver=_resolver({}),  # nothing known
-        )
-    server_task.cancel()
+            psk_resolver=_resolver({}),  # the record is gone
+        ),
+    )
+
+    assert server_result.credential_mismatch is True
+    assert client_result.credential_mismatch is True
+    assert server_result.psk.category is PskCategory.SENTINEL
+    assert client_result.psk.category is PskCategory.SENTINEL
+    assert server_result.handshake_hash == client_result.handshake_hash
 
 
 async def test_server_rejects_unknown_suite() -> None:
@@ -737,8 +742,8 @@ async def test_server_rejects_msg2_with_malformed_payload() -> None:
     await client_task
 
 
-async def test_psk_held_under_another_category_is_a_lookup_miss() -> None:
-    """The declared category binds: the same psk_id under another category does not match."""
+async def test_psk_held_under_another_category_falls_back_to_the_sentinel() -> None:
+    """The declared category binds: the same psk_id under another category is a miss."""
     server_id = Identity.generate()
     client_id = Identity.generate()
     psk = generate_psk()
@@ -747,22 +752,23 @@ async def test_psk_held_under_another_category_is_a_lookup_miss() -> None:
     client_resolved = ResolvedPsk(psk_id=psk_id_for(psk), psk=psk, category=PskCategory.PAIRING)
 
     server_ws, client_ws = make_ws_pair()
-    server_task = asyncio.create_task(
+    server_result, client_result = await asyncio.gather(
         run_handshake_server(
             server_ws,
             local_identity=server_id,
             psk_provider=_provider(server_resolved),
-            timeout_s=1.0,
-        )
-    )
-    with pytest.raises(HandshakeAbortedError, match="no PSK matches psk_id"):
-        await run_handshake_client(
+        ),
+        run_handshake_client(
             client_ws,
             local_identity=client_id,
             suite=NoiseCipherSuite.CHACHAPOLY,
             psk_resolver=_resolver({client_resolved.psk_id: client_resolved}),
-        )
-    await asyncio.gather(server_task, return_exceptions=True)
+        ),
+    )
+
+    assert client_result.credential_mismatch is True
+    assert server_result.credential_mismatch is True
+    assert server_result.psk.category is PskCategory.SENTINEL
 
 
 async def test_message_1_without_a_category_admits_any_category() -> None:
