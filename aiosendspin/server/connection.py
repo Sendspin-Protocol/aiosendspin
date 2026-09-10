@@ -913,6 +913,7 @@ class SendspinConnection:
                     "Client could not use its pairing record and was admitted on the "
                     "Sentinel PSK; it needs re-pairing before it can play again"
                 )
+                self._server._signal_credential_mismatch(result.peer_id)  # noqa: SLF001
             return result.encrypted_ws
         if msg_type == "client/hello" and self._server.allow_unencrypted:
             if self._pairing_attempt is not None:

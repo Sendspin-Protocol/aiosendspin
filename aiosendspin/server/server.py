@@ -84,6 +84,19 @@ class ClientRemovedEvent(SendspinEvent):
 
 
 @dataclass
+class ClientCredentialMismatchEvent(SendspinEvent):
+    """A client could not use the pairing record this server holds for it.
+
+    Raised by an authenticated signal during the handshake, so it identifies the
+    real device rather than an impostor. The record is kept and the session admitted
+    on the Sentinel PSK, but it carries no playback until the two agree again — offer
+    the operator re-pairing.
+    """
+
+    client_id: str
+
+
+@dataclass
 class ClientConnectedEvent(SendspinEvent):
     """A client established a transport connection (first or reconnect).
 
@@ -425,6 +438,10 @@ class SendspinServer:
     def _signal_client_updated(self, client_id: str) -> None:
         """Emit a ClientUpdatedEvent (called from SendspinClient)."""
         self._signal_event(ClientUpdatedEvent(client_id))
+
+    def _signal_credential_mismatch(self, client_id: str) -> None:
+        """Emit a ClientCredentialMismatchEvent (called from SendspinConnection)."""
+        self._signal_event(ClientCredentialMismatchEvent(client_id))
 
     def _signal_client_connected(self, client_id: str) -> None:
         """Emit a ClientConnectedEvent (called from SendspinClient)."""
