@@ -1365,7 +1365,7 @@ class SendspinConnection:
     async def _handle_unpair(self) -> None:
         """Handle server/unpair: drop the matched record (unless shared) and close."""
         if self._noise_psk is None or self._noise_psk.category is not PskCategory.LONG_TERM:
-            return  # trust_level 'none' (pairing / unpaired handshake): ignore and continue.
+            return  # Not a long-term session (pairing / unpaired): ignore and continue.
         await handle_unpair(self._client.pairing_store, matched_psk_id=self._noise_psk.psk_id)
         await self._goodbye_and_disconnect(GoodbyeReason.UNPAIRED)
 

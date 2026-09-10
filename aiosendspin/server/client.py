@@ -79,21 +79,19 @@ class DisconnectBehaviour(Enum):
     """
 
 
-def _trust_for(category: PskCategory) -> TrustLevel:
-    """Return the trust a connection admitted under ``category`` carries."""
-    if category is PskCategory.LONG_TERM:
-        return TrustLevel.USER
-    return TrustLevel.NONE
-
-
 @dataclass(frozen=True, slots=True)
 class ConnectionSecurity:
     """Read-only view of a live connection's security state."""
 
     psk_category: PskCategory
     """Category of the PSK that admitted the connection; a server-verified fact."""
-    trust_level: TrustLevel
-    """Trust this connection carries, derived from the PSK category that admitted it."""
+
+    @property
+    def trust_level(self) -> TrustLevel:
+        """Trust this connection carries, derived from the PSK category that admitted it."""
+        if self.psk_category is PskCategory.LONG_TERM:
+            return TrustLevel.USER
+        return TrustLevel.NONE
 
 
 class SendspinClient:
@@ -257,10 +255,7 @@ class SendspinClient:
         conn = self._connection
         if conn is None or conn.psk_category is None:
             return None
-        return ConnectionSecurity(
-            psk_category=conn.psk_category,
-            trust_level=_trust_for(conn.psk_category),
-        )
+        return ConnectionSecurity(psk_category=conn.psk_category)
 
     @property
     def is_paired(self) -> bool:
