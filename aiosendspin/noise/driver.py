@@ -376,6 +376,9 @@ def _category_admits(declared: str | None, actual: PskCategory) -> bool:
     leniency is not reachable by an attacker: message 1's payload is encrypted under keys
     mixing the server's static key, and referencing a psk_id at all means holding the PSK
     it hashes from. A code naming no category we know matches nothing, as a miss.
+
+    The spec lists the field as required, so this tolerance is transitional: drop it once
+    no supported server predates the field.
     """
     return declared is None or PskCategory.from_code(declared) is actual
 
