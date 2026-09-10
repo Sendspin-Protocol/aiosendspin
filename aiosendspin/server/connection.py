@@ -1635,6 +1635,9 @@ class SendspinConnection:
 
     def unpair(self) -> None:
         """Tell the client to drop this server's pairing record (it then closes)."""
+        # The record this session could not agree on is gone, so the constraint that held
+        # playback back goes with it: what remains is an ordinary unpaired client.
+        self._credential_mismatch = False
         self.send_priority_message(ServerUnpairMessage())
 
     async def list_records(

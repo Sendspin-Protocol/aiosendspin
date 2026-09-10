@@ -103,3 +103,24 @@ async def test_trusted_unpaired_does_not_reactivate_a_mismatched_session() -> No
     assert conn._client_info.unpaired_access.enabled is True  # noqa: SLF001
     assert conn._playback_capable is False  # noqa: SLF001
     assert conn._roles_to_activate == []  # noqa: SLF001
+
+
+async def test_forgetting_the_client_releases_the_constraint() -> None:
+    """The gate holds only while the record does: unpairing frees the session.
+
+    An operator who answers the mismatch by forgetting the client rather than re-pairing
+    leaves an ordinary unpaired client, which trusted-unpaired access may then admit.
+    """
+    conn = _long_term_connection(credential_mismatch=True)
+    psk = generate_psk()
+    conn._noise_psk = ResolvedPsk(  # noqa: SLF001
+        psk_id=psk_id_for(psk), psk=psk, category=PskCategory.SENTINEL
+    )
+    conn._trusted_unpaired = True  # noqa: SLF001
+    conn.send_priority_message = MagicMock()  # type: ignore[method-assign]
+    assert conn._playback_capable is False  # noqa: SLF001
+
+    conn.unpair()
+
+    assert conn._playback_capable is True  # noqa: SLF001
+    assert conn._roles_to_activate == ["controller@v1"]  # noqa: SLF001
