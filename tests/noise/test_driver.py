@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 from aiohttp import WSMsgType
@@ -872,3 +873,95 @@ async def test_rehandshake_category_mismatch_aborts() -> None:
             psk_resolver=_resolver({client_psk2.psk_id: client_psk2}),
         )
     await asyncio.gather(server_task, return_exceptions=True)
+
+
+async def test_rehandshake_referencing_an_unusable_psk_aborts_the_server() -> None:
+    """The initiator half of the re-handshake rule: no Sentinel rescue there either."""
+    server_id = Identity.generate()
+    client_id = Identity.generate()
+
+    psk1 = generate_psk()
+    psk1_resolved = ResolvedPsk(psk_id=psk_id_for(psk1), psk=psk1, category=PskCategory.SENTINEL)
+
+    server_ws, client_ws = make_ws_pair()
+    server_init, client_init = await asyncio.gather(
+        run_handshake_server(
+            server_ws, local_identity=server_id, psk_provider=_provider(psk1_resolved)
+        ),
+        run_handshake_client(
+            client_ws,
+            local_identity=client_id,
+            suite=NoiseCipherSuite.CHACHAPOLY,
+            psk_resolver=_resolver({psk1_resolved.psk_id: psk1_resolved}),
+        ),
+    )
+
+    # The server re-handshakes on a record the client does not hold at all.
+    psk2 = generate_psk()
+    server_psk2 = ResolvedPsk(
+        psk_id=psk_id_for(psk2),
+        psk=psk2,
+        category=PskCategory.LONG_TERM,
+        counterparty_id=client_id.peer_id,
+    )
+
+    client_task = asyncio.create_task(
+        run_rehandshake_client(
+            client_init.encrypted_ws,
+            local_identity=client_id,
+            server_id=server_id.peer_id,
+            suite=client_init.suite,
+            prologue=client_init.handshake_hash,
+            psk_resolver=_resolver({}),
+        )
+    )
+    with pytest.raises(HandshakeAbortedError):
+        await run_rehandshake_server(
+            server_init.encrypted_ws,
+            local_identity=server_id,
+            client_id=client_id.peer_id,
+            suite=server_init.suite,
+            prologue=server_init.handshake_hash,
+            psk=server_psk2,
+            timeout_s=1.0,
+        )
+    await asyncio.gather(client_task, return_exceptions=True)
+
+
+async def test_fork_requires_a_written_message_1() -> None:
+    """The fork is only meaningful mid-handshake, and says so rather than misbehaving."""
+    server_id = Identity.generate()
+    client_id = Identity.generate()
+    session = NoiseSession.as_initiator(
+        suite=NoiseCipherSuite.CHACHAPOLY,
+        local_static_priv=server_id.private_bytes,
+        remote_static_pub=client_id.public_bytes,
+        prologue=b"prologue",
+        psk=generate_psk(),
+    )
+
+    with pytest.raises(RuntimeError, match="written message 1"):
+        session.fork_at_message_2(generate_psk())
+
+
+async def test_fork_refuses_a_message_1_it_cannot_reproduce() -> None:
+    """A replay that differs from what the peer answered is drift, and must be loud."""
+    server_id = Identity.generate()
+    client_id = Identity.generate()
+    session = NoiseSession.as_initiator(
+        suite=NoiseCipherSuite.CHACHAPOLY,
+        local_static_priv=server_id.private_bytes,
+        remote_static_pub=client_id.public_bytes,
+        prologue=b"prologue",
+        psk=generate_psk(),
+    )
+    session.write_message(b'{"psk_id":"x"}')
+    # Stand in for a library whose ephemeral handling has drifted under us.
+    with (
+        patch(
+            "aiosendspin.noise.session._ephemeral_private_bytes",
+            return_value=Identity.generate().private_bytes,
+        ),
+        pytest.raises(RuntimeError, match="differs from the one sent"),
+    ):
+        session.fork_at_message_2(generate_psk())

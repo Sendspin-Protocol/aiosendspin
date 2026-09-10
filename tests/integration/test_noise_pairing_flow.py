@@ -2391,3 +2391,59 @@ async def test_lost_client_record_connects_on_the_sentinel_and_is_surfaced() -> 
             assert await server_store.record_by_client_id(identity.peer_id) is not None
         finally:
             await client.disconnect()
+
+
+async def test_re_pairing_restores_service_after_a_credential_mismatch() -> None:
+    """The remedy the spec offers must actually work on the same connection.
+
+    Pairing replaces the record, so the mismatch no longer stands and the session
+    regains its roles without the client having to reconnect.
+    """
+    server_store = InMemoryServerPairingStore()
+    server = _make_server(server_store)
+    identity = Identity.generate()
+
+    psk = generate_psk()
+    await server_store.store_record(
+        ServerPairingRecord(
+            psk_id=psk_id_for(psk), psk=psk, client_id=identity.peer_id, pair_methods=[]
+        )
+    )
+
+    shown: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+
+    async def display(pairing_code: str | None) -> None:
+        if pairing_code is not None and not shown.done():
+            shown.set_result(pairing_code)
+
+    async def provide() -> str:
+        return await shown
+
+    async with _serve(server) as url:
+        client = make_sdk_client(
+            identity=identity,
+            pairing_store=InMemoryClientPairingStore(),  # the record is gone
+            client_name="c",
+            roles=[Roles.CONTROLLER],
+            pairing_support=PairingSupport(pairing_code_display=display),
+        )
+        try:
+            await client.connect(url)
+            conn = await _find_connection_by_client_id(server, identity.peer_id)
+            assert conn._credential_mismatch is True  # noqa: SLF001
+            assert conn._roles_to_activate == []  # noqa: SLF001
+
+            await conn.initiate_pairing(
+                PairingAttempt(
+                    method=PairMethod.DYNAMIC_PAIRING_CODE,
+                    pairing_code_provider=provide,
+                    pairing_format=PairingCodeFormat.DIGITS,
+                )
+            )
+
+            assert conn._credential_mismatch is False  # noqa: SLF001
+            assert conn._noise_psk is not None  # noqa: SLF001
+            assert conn._noise_psk.category is PskCategory.LONG_TERM  # noqa: SLF001
+            assert conn._roles_to_activate == ["controller@v1"]  # noqa: SLF001
+        finally:
+            await client.disconnect()

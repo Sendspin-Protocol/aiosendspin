@@ -35,7 +35,6 @@ class NoiseSession:
         self._suite = suite
         self._rebuild: _InitiatorRebuild | None = None
         self._message_1: tuple[bytes, bytes] | None = None
-        self._ephemeral_priv: bytes | None = None
 
     @property
     def suite(self) -> NoiseCipherSuite:
@@ -101,9 +100,7 @@ class NoiseSession:
         """Produce the next outgoing handshake message containing ``payload``."""
         message = bytes(self._conn.write_message(payload))
         if self._rebuild is not None and self._message_1 is None:
-            # The library generates the ephemeral while writing, so it exists only now.
             self._message_1 = (payload, message)
-            self._ephemeral_priv = _ephemeral_private_bytes(self._conn)
         return message
 
     def fork_at_message_2(self, psk: bytes) -> NoiseSession:
@@ -113,13 +110,17 @@ class NoiseSession:
         second PSK means replaying message 1 on the same ephemeral rather than starting
         a new session. The returned session is ready to read message 2; this one is
         spent either way, its symmetric state already advanced by the failed read.
+
+        Only callable between writing message 1 and completing the handshake, which is
+        where the ephemeral is still reachable and reusing it is a replay of one exchange
+        rather than reuse across two.
         """
-        if self._rebuild is None or self._message_1 is None or self._ephemeral_priv is None:
-            msg = "only an initiator that has written message 1 can be forked"
+        if self._rebuild is None or self._message_1 is None:
+            msg = "only an initiator mid-handshake, having written message 1, can be forked"
             raise RuntimeError(msg)
         _check_psk_size(psk)
         payload, ciphertext = self._message_1
-        conn = self._rebuild.build(psk, ephemeral_priv=self._ephemeral_priv)
+        conn = self._rebuild.build(psk, ephemeral_priv=_ephemeral_private_bytes(self._conn))
         forked = NoiseSession(conn, suite=self._suite)
         if forked.write_message(payload) != ciphertext:
             # Replaying the same inputs must reproduce the message the peer answered;
@@ -131,9 +132,15 @@ class NoiseSession:
     def read_message(self, ciphertext: bytes) -> bytes:
         """Consume the next incoming handshake message; return the decrypted payload."""
         try:
-            return bytes(self._conn.read_message(ciphertext))
+            plaintext = bytes(self._conn.read_message(ciphertext))
         except InvalidTag as exc:
             raise NoiseInvalidMessage("Failed authentication of handshake message") from exc
+        if self.handshake_complete:
+            # The library drops its handshake state here, ephemeral included. Drop what was
+            # kept for a fork with it, so no replay material outlives the handshake.
+            self._rebuild = None
+            self._message_1 = None
+        return plaintext
 
     def mix_psk(self, psk: bytes) -> None:
         """Swap in the real PSK between reading message 1 and writing message 2."""

@@ -21,6 +21,7 @@ from .keys import (
     Identity,
     b64url_decode,
     b64url_encode,
+    psk_id_for,
 )
 from .models import (
     ClientInitMessage,
@@ -134,7 +135,7 @@ async def run_handshake_server(
     )
     if credential_mismatch:
         # The client answered under the Sentinel, so that is what keys this session.
-        resolved = ResolvedPsk(resolved.psk_id, SENTINEL_PSK, PskCategory.SENTINEL)
+        resolved = _sentinel_psk()
 
     return HandshakeResult(
         encrypted_ws=EncryptedWebSocket(ws, session),
@@ -310,7 +311,7 @@ async def _exchange_as_initiator(
     sentinel_admitted = False
     try:
         msg2_pt = _read_handshake_message(session, hs2_text, "Noise message 2")
-    except HandshakeAbortedError:
+    except HandshakeAuthenticationError:
         if not allow_sentinel_fallback or psk.category is PskCategory.SENTINEL:
             raise
         # The peer could not use the PSK we referenced. A message 2 that verifies under
@@ -357,7 +358,7 @@ async def _exchange_as_responder(
         # The server referenced a credential this client cannot use — a lost record, an
         # interrupted finalize, an eviction. Answer under the Sentinel so the session can
         # carry a re-pairing instead of dying here.
-        resolved = ResolvedPsk(msg1_obj.psk_id, SENTINEL_PSK, PskCategory.SENTINEL)
+        resolved = _sentinel_psk()
         credential_mismatch = True
     # Stored-pubkey post-match check: the record's bound server_id must be the
     # server we actually reached. A misbinding is not a miss, and never falls back.
@@ -411,7 +412,21 @@ def _read_handshake_message(session: NoiseSession, text: str, what: str) -> byte
     try:
         return session.read_message(ciphertext)
     except (NoiseInvalidMessage, NoiseHandshakeError, NoiseValueError) as exc:
-        raise HandshakeAbortedError(f"{what} failed Noise authentication") from exc
+        raise HandshakeAuthenticationError(f"{what} failed Noise authentication") from exc
+
+
+class HandshakeAuthenticationError(HandshakeAbortedError):
+    """A handshake message failed to authenticate under the PSK in use.
+
+    Separated from the malformed-frame aborts so a peer cannot make the server rebuild a
+    handshake state by sending rubbish: only this one can mean the credential is wrong,
+    so only this one is a candidate for the Sentinel fallback.
+    """
+
+
+def _sentinel_psk() -> ResolvedPsk:
+    """Return the Sentinel PSK as a resolved credential."""
+    return ResolvedPsk(psk_id_for(SENTINEL_PSK), SENTINEL_PSK, PskCategory.SENTINEL)
 
 
 def _category_admits(declared: str | None, actual: PskCategory) -> bool:
