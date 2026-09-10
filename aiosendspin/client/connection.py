@@ -83,7 +83,6 @@ from aiosendspin.models.types import (
     Roles,
     ServerMessage,
     SignalState,
-    TrustLevel,
     UndefinedField,
     role_family,
 )
@@ -1011,7 +1010,6 @@ class SendspinConnection:
             artwork_support=self._client.artwork_support,
             visualizer_support=self._client.visualizer_support,
             source_support=self._client.source_support,
-            trust_level=self._compute_trust(),
             supported_pair_methods=[
                 await self._pair_method_descriptor(m) for m in await self._supported_pair_methods()
             ],
@@ -1032,12 +1030,6 @@ class SendspinConnection:
             formats=[f.value for f in await self._dynamic_pairing_formats()],
             out_channels=list(out_channels) if out_channels else None,
         )
-
-    def _compute_trust(self) -> TrustLevel:
-        """Trust extended to the reached server: ``user`` when paired, else ``none``."""
-        if self._noise_psk is not None and self._noise_psk.category is PskCategory.LONG_TERM:
-            return TrustLevel.USER
-        return TrustLevel.NONE
 
     async def _send_client_hello(self) -> None:
         assert self._ws is not None

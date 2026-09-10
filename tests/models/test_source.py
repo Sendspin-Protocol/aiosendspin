@@ -20,7 +20,6 @@ from aiosendspin.models.types import (
     ClientMessage,
     PairMethod,
     SignalState,
-    TrustLevel,
 )
 
 
@@ -66,7 +65,6 @@ def test_hello_preserves_supported_pair_methods_positional_argument() -> None:
     payload = ClientHelloPayload(
         "Client",
         [],
-        TrustLevel.NONE,
         None,
         None,
         None,
