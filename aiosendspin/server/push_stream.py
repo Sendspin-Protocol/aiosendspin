@@ -827,16 +827,16 @@ class PushStream:
     def _role_send_ahead_us(self, role: Role) -> int:
         """Per-role send-ahead floor.
 
-        Both cases floor at min_buffer + static. Buffered streams extend the lead
-        toward required_lead (it adds no latency once the queue grows past
+        Both cases floor at min_buffer + output_delay. Buffered streams extend the
+        lead toward required_lead (it adds no latency once the queue grows past
         min_buffer); live streams do not, since a realtime queue cannot grow after
         playback begins and extra lead would only add latency.
         """
         min_buffer_us = role.get_min_buffer_us()
-        static_us = role.get_output_delay_us()
+        output_delay_us = role.get_output_delay_us()
         if self._is_live:
-            return min_buffer_us + static_us
-        return max(min_buffer_us, role.get_required_lead_time_us()) + static_us
+            return min_buffer_us + output_delay_us
+        return max(min_buffer_us, role.get_required_lead_time_us()) + output_delay_us
 
     def _min_send_ahead_us(self) -> int:
         """Return the common send-ahead floor across active audio roles."""

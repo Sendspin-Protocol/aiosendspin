@@ -145,7 +145,7 @@ class SendspinClient:
     """Whether this client owns and should close the session."""
 
     _output_delay_us: int = 0
-    """Default static playback delay seeding new connections, in microseconds."""
+    """Default output delay seeding new connections, in microseconds."""
     _required_lead_time_us: int = 250_000
     """Reported startup lead time in microseconds."""
     _min_buffer_us: int = 250_000
@@ -486,7 +486,7 @@ class SendspinClient:
 
     @property
     def output_delay_us(self) -> int:
-        """Default static playback delay seeding new connections, in microseconds."""
+        """Default output delay seeding new connections, in microseconds."""
         return self._output_delay_us
 
     # --- Connection state ---
@@ -519,13 +519,13 @@ class SendspinClient:
 
     @property
     def output_delay_ms(self) -> float:
-        """Return the currently configured static playback delay in milliseconds."""
+        """Return the currently configured output delay in milliseconds."""
         if self._admitted_connection is not None:
             return self._admitted_connection.output_delay_ms
         return self._output_delay_us / 1_000.0
 
     def set_output_delay_ms(self, delay_ms: float) -> None:
-        """Update the static playback delay applied after clock synchronisation."""
+        """Update the output delay applied after clock synchronisation."""
         delay_ms = max(0.0, min(5000.0, delay_ms))
         delay_us = round(delay_ms * 1_000.0)
         if self._admitted_connection is not None:
@@ -533,7 +533,7 @@ class SendspinClient:
         if delay_us == self._output_delay_us:
             return
         self._output_delay_us = delay_us
-        logger.info("Set static playback delay to %.1f ms", self.output_delay_ms)
+        logger.info("Set output delay to %.1f ms", self.output_delay_ms)
 
     @property
     def required_lead_time_ms(self) -> float:

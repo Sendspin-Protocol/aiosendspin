@@ -229,7 +229,7 @@ class SendspinConnection:
     """Background task for time synchronization."""
 
     _output_delay_us: int = 0
-    """Static playback delay in microseconds."""
+    """Output delay in microseconds."""
     _send_lock: asyncio.Lock
     """Lock for serializing WebSocket message sends."""
     _time_filter: SendspinTimeFilter
@@ -304,17 +304,17 @@ class SendspinConnection:
 
     @property
     def output_delay_ms(self) -> float:
-        """Return the currently configured static playback delay in milliseconds."""
+        """Return the currently configured output delay in milliseconds."""
         return self._output_delay_us / 1_000.0
 
     def set_output_delay_ms(self, delay_ms: float) -> None:
-        """Update the static playback delay applied after clock synchronisation."""
+        """Update the output delay applied after clock synchronisation."""
         delay_ms = max(0.0, min(5000.0, delay_ms))
         delay_us = round(delay_ms * 1_000.0)
         if delay_us == self._output_delay_us:
             return
         self._output_delay_us = delay_us
-        logger.info("Set static playback delay to %.1f ms", self.output_delay_ms)
+        logger.info("Set output delay to %.1f ms", self.output_delay_ms)
 
     async def connect(
         self, raw_ws: ClientWebSocketResponse, *, expected_server_id: str | None
